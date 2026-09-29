@@ -1,0 +1,131 @@
+{
+  "_comment": "字段名与类型均取自 2026-09-26 对 openapi.gmgn.ai 的实测响应(以 CAKE 为模板)。数值经过改写以覆盖判定分支,但结构、键名、类型(大量数字是字符串)与线上一致。",
+  "info": {
+    "code": 0,
+    "data": {
+      "address": "0x1111111111111111111111111111111111111111",
+      "symbol": "TEST",
+      "name": "Test Token",
+      "decimals": 18,
+      "holder_count": 500,
+      "circulating_supply": "1000000000",
+      "total_supply": "1000000000",
+      "max_supply": "1000000000",
+      "liquidity": "12000.5",
+      "creation_timestamp": 1758800000,
+      "open_timestamp": 1758800000,
+      "launchpad": "fourmeme",
+      "launchpad_status": 1,
+      "launchpad_progress": 1,
+      "launchpad_platform": "",
+      "migrated_pool": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "migration_market_cap": 62000,
+      "ath_price": 0.00005,
+      "og": false,
+      "price": {
+        "address": "0x1111111111111111111111111111111111111111",
+        "price": "0.00003",
+        "price_1h": "0.000029",
+        "price_24h": "0.000021",
+        "buys_24h": 310,
+        "sells_24h": 180,
+        "volume_24h": "18400.25",
+        "swaps_24h": 490,
+        "hot_level": 0
+      },
+      "pool": {
+        "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pool_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "quote_symbol": "WBNB",
+        "liquidity": "12000.5",
+        "exchange": "pancake_v2",
+        "creation_timestamp": 1758800000,
+        "fee_ratio": "0.0025"
+      },
+      "dev": {
+        "address": "0x1111111111111111111111111111111111111111",
+        "creator_address": "0x1111111111111111111111111111111111111112",
+        "creator_token_balance": "0",
+        "creator_token_status": "sell",
+        "top_10_holder_rate": "0.098",
+        "creator_open_count": 3
+      },
+      "stat": {
+        "holder_count": 500,
+        "top_10_holder_rate": "0.098",
+        "top_rat_trader_percentage": "0",
+        "top_bundler_trader_percentage": "0.02",
+        "top_entrapment_trader_percentage": "0",
+        "bot_degen_count": 12,
+        "bot_degen_rate": "0.024",
+        "fresh_wallet_rate": "0.31",
+        "dev_team_hold_rate": "0",
+        "creator_hold_rate": "0.01",
+        "creator_token_balance": "0",
+        "private_vault_hold_rate": "0",
+        "top70_sniper_hold_rate": "0.012"
+      },
+      "wallet_tags_stat": {
+        "smart_wallets": 3,
+        "fresh_wallets": 155,
+        "renowned_wallets": 1,
+        "creator_wallets": 1,
+        "sniper_wallets": 10,
+        "rat_trader_wallets": 0,
+        "whale_wallets": 0,
+        "top_wallets": 10,
+        "bundler_wallets": 2
+      },
+      "link": {
+        "website": "",
+        "twitter_username": "",
+        "telegram": "",
+        "description": ""
+      }
+    }
+  },
+  "security": {
+    "code": 0,
+    "data": {
+      "address": "0x1111111111111111111111111111111111111111",
+      "is_show_alert": false,
+      "top_10_holder_rate": "0.098",
+      "burn_ratio": "0",
+      "burn_status": "",
+      "is_open_source": true,
+      "open_source": 1,
+      "is_blacklist": false,
+      "is_honeypot": false,
+      "honeypot": 0,
+      "is_renounced": true,
+      "renounced": 1,
+      "can_sell": 0,
+      "can_not_sell": 0,
+      "buy_tax": "0",
+      "sell_tax": "0",
+      "average_tax": "0",
+      "high_tax": "0",
+      "flags": [],
+      "hide_risk": false
+    }
+  },
+  "holders": {
+    "code": 0,
+    "data": {
+      "list": [
+        { "address": "0x000000000000000000000000000000000000dEaD", "account_address": "", "addr_type": 1, "exchange": "", "amount_percentage": 0.6, "balance": 600000000, "usd_value": 18000, "tags": [], "maker_token_tags": [], "transfer_in": false, "is_on_curve": false, "is_new": false, "is_suspicious": false, "wallet_tag_v2": "TOP1" },
+        { "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "account_address": "", "addr_type": 2, "exchange": "pancake_v2", "amount_percentage": 0.25, "balance": 250000000, "usd_value": 7500, "tags": [], "maker_token_tags": [], "transfer_in": false, "is_on_curve": false, "is_new": false, "is_suspicious": false, "wallet_tag_v2": "TOP2" },
+        { "address": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "account_address": "", "addr_type": 0, "exchange": "", "amount_percentage": 0.025, "balance": 25000000, "usd_value": 750, "tags": [], "maker_token_tags": ["top_holder"], "transfer_in": false, "is_on_curve": false, "is_new": false, "is_suspicious": false, "wallet_tag_v2": "TOP3" },
+        { "address": "0xcccccccccccccccccccccccccccccccccccccccc", "account_address": "", "addr_type": 0, "exchange": "", "amount_percentage": 0.02, "balance": 20000000, "usd_value": 600, "tags": [], "maker_token_tags": ["bundler"], "transfer_in": false, "is_on_curve": false, "is_new": false, "is_suspicious": false, "wallet_tag_v2": "TOP4" },
+        { "address": "0xdddddddddddddddddddddddddddddddddddddddd", "account_address": "", "addr_type": 0, "exchange": "", "amount_percentage": 0.015, "balance": 15000000, "usd_value": 450, "tags": [], "maker_token_tags": [], "transfer_in": false, "is_on_curve": false, "is_new": false, "is_suspicious": false, "wallet_tag_v2": "TOP5" },
+        { "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "account_address": "", "addr_type": 0, "exchange": "", "amount_percentage": 0.01, "balance": 10000000, "usd_value": 300, "tags": [], "maker_token_tags": [], "transfer_in": false, "is_on_curve": false, "is_new": false, "is_suspicious": false, "wallet_tag_v2": "TOP6" },
+        { "address": "0xf000000000000000000000000000000000000001", "account_address": "", "addr_type": 0, "exchange": "", "amount_percentage": 0.008, "balance": 8000000, "usd_value": 240, "tags": [], "maker_token_tags": [], "transfer_in": false, "is_on_curve": false, "is_new": false, "is_suspicious": false, "wallet_tag_v2": "TOP7" },
+        { "address": "0xf000000000000000000000000000000000000002", "account_address": "", "addr_type": 0, "exchange": "", "amount_percentage": 0.006, "balance": 6000000, "usd_value": 180, "tags": [], "maker_token_tags": [], "transfer_in": false, "is_on_curve": false, "is_new": false, "is_suspicious": false, "wallet_tag_v2": "TOP8" },
+        { "address": "0xf000000000000000000000000000000000000003", "account_address": "", "addr_type": 0, "exchange": "", "amount_percentage": 0.005, "balance": 5000000, "usd_value": 150, "tags": [], "maker_token_tags": [], "transfer_in": false, "is_on_curve": false, "is_new": false, "is_suspicious": false, "wallet_tag_v2": "TOP9" },
+        { "address": "0xf000000000000000000000000000000000000004", "account_address": "", "addr_type": 0, "exchange": "", "amount_percentage": 0.004, "balance": 4000000, "usd_value": 120, "tags": [], "maker_token_tags": [], "transfer_in": false, "is_on_curve": false, "is_new": false, "is_suspicious": false, "wallet_tag_v2": "TOP10" },
+        { "address": "0xf000000000000000000000000000000000000005", "account_address": "", "addr_type": 0, "exchange": "", "amount_percentage": 0.003, "balance": 3000000, "usd_value": 90, "tags": [], "maker_token_tags": [], "transfer_in": false, "is_on_curve": false, "is_new": false, "is_suspicious": false, "wallet_tag_v2": "TOP11" },
+        { "address": "0xf000000000000000000000000000000000000006", "account_address": "", "addr_type": 0, "exchange": "", "amount_percentage": 0.002, "balance": 2000000, "usd_value": 60, "tags": [], "maker_token_tags": [], "transfer_in": false, "is_on_curve": false, "is_new": false, "is_suspicious": false, "wallet_tag_v2": "TOP12" }
+      ]
+    }
+  }
+}

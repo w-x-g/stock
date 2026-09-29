@@ -1,0 +1,39 @@
+{
+  "_comment": "合成夹具:明细里没有任何 addr_type,也没有 pair_address 可依。StrictLP=true 时必须判为无法确定,而不是判定通过或不合格。",
+  "info": {
+    "code": 0,
+    "data": {
+      "address": "0x7777777777777777777777777777777777777777",
+      "symbol": "NOLP",
+      "name": "No LP Marker",
+      "holder_count": 600,
+      "circulating_supply": "1000000000",
+      "total_supply": "1000000000",
+      "liquidity": "7000",
+      "launchpad_status": 1,
+      "migrated_pool": "",
+      "migration_market_cap": 0,
+      "price": { "price": "0.00002" },
+      "dev": { "creator_address": "0x7777777777777777777777777777777777777778", "creator_token_status": "hold" },
+      "stat": { "holder_count": 600, "top_10_holder_rate": "0.365", "top70_sniper_hold_rate": "0.01" },
+      "wallet_tags_stat": { "sniper_wallets": 12, "bundler_wallets": 0, "smart_wallets": 0 },
+      "link": {}
+    }
+  },
+  "security": {
+    "code": 0,
+    "data": { "address": "0x7777777777777777777777777777777777777777", "is_honeypot": "no", "is_open_source": false, "is_renounced": false }
+  },
+  "holders": {
+    "code": 0,
+    "data": {
+      "list": [
+        { "address": "0x9999999999999999999999999999999999999999", "amount_percentage": 0.3 },
+        { "address": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "amount_percentage": 0.02 },
+        { "address": "0xcccccccccccccccccccccccccccccccccccccccc", "amount_percentage": 0.018 },
+        { "address": "0xdddddddddddddddddddddddddddddddddddddddd", "amount_percentage": 0.015 },
+        { "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "amount_percentage": 0.012 }
+      ]
+    }
+  }
+}

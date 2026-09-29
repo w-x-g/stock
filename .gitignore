@@ -1,0 +1,13 @@
+# 含数据库凭据与 API Key,绝不入库
+.env
+
+# 编译产物
+/backfill
+/watcher
+/enrich
+/screen
+*.exe
+
+# 临时文件
+/scratch/
+*.tmp

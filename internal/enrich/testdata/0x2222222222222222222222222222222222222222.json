@@ -1,0 +1,49 @@
+{
+  "_comment": "合成夹具:LP 排第 1 且占 35%,剔除后通过。这是条件 3 的核心回归用例——不剔除 LP 则永远不可能通过。结构取自实测响应。",
+  "info": {
+    "code": 0,
+    "data": {
+      "address": "0x2222222222222222222222222222222222222222",
+      "symbol": "LPTEST",
+      "name": "Liquidity Pool Test",
+      "decimals": 18,
+      "holder_count": 800,
+      "circulating_supply": "1000000000",
+      "total_supply": "1000000000",
+      "liquidity": "9000",
+      "launchpad": "fourmeme",
+      "launchpad_status": 1,
+      "launchpad_progress": 1,
+      "migrated_pool": "0x9999999999999999999999999999999999999999",
+      "migration_market_cap": 55000,
+      "price": { "price": "0.000025", "price_1h": "0.000024", "volume_24h": "8100" },
+      "pool": { "pool_address": "0x9999999999999999999999999999999999999999", "exchange": "pancake_v2", "liquidity": "9000" },
+      "dev": { "creator_address": "0x2222222222222222222222222222222222222223", "creator_token_status": "sell", "top_10_holder_rate": "0.079" },
+      "stat": { "holder_count": 800, "top_10_holder_rate": "0.079", "top_bundler_trader_percentage": "0.03", "creator_hold_rate": "0", "top70_sniper_hold_rate": "0.02" },
+      "wallet_tags_stat": { "sniper_wallets": 16, "bundler_wallets": 1, "smart_wallets": 0 },
+      "link": {}
+    }
+  },
+  "security": {
+    "code": 0,
+    "data": { "address": "0x2222222222222222222222222222222222222222", "is_honeypot": false, "buy_tax": "0", "sell_tax": "0", "is_open_source": true, "is_renounced": true, "top_10_holder_rate": "0.079" }
+  },
+  "holders": {
+    "code": 0,
+    "data": {
+      "list": [
+        { "address": "0x9999999999999999999999999999999999999999", "addr_type": 2, "exchange": "pancake_v2", "amount_percentage": 0.35, "tags": [], "maker_token_tags": [], "wallet_tag_v2": "TOP1" },
+        { "address": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "addr_type": 0, "amount_percentage": 0.015, "tags": [], "maker_token_tags": [], "wallet_tag_v2": "TOP2" },
+        { "address": "0xcccccccccccccccccccccccccccccccccccccccc", "addr_type": 0, "amount_percentage": 0.012, "tags": [], "maker_token_tags": [], "wallet_tag_v2": "TOP3" },
+        { "address": "0xdddddddddddddddddddddddddddddddddddddddd", "addr_type": 0, "amount_percentage": 0.01, "tags": [], "maker_token_tags": [], "wallet_tag_v2": "TOP4" },
+        { "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "addr_type": 0, "amount_percentage": 0.009, "tags": [], "maker_token_tags": [], "wallet_tag_v2": "TOP5" },
+        { "address": "0xf000000000000000000000000000000000000001", "addr_type": 0, "amount_percentage": 0.008, "tags": [], "maker_token_tags": [], "wallet_tag_v2": "TOP6" },
+        { "address": "0xf000000000000000000000000000000000000002", "addr_type": 0, "amount_percentage": 0.007, "tags": [], "maker_token_tags": [], "wallet_tag_v2": "TOP7" },
+        { "address": "0xf000000000000000000000000000000000000003", "addr_type": 0, "amount_percentage": 0.006, "tags": [], "maker_token_tags": [], "wallet_tag_v2": "TOP8" },
+        { "address": "0xf000000000000000000000000000000000000004", "addr_type": 0, "amount_percentage": 0.005, "tags": [], "maker_token_tags": [], "wallet_tag_v2": "TOP9" },
+        { "address": "0xf000000000000000000000000000000000000005", "addr_type": 0, "amount_percentage": 0.004, "tags": [], "maker_token_tags": [], "wallet_tag_v2": "TOP10" },
+        { "address": "0xf000000000000000000000000000000000000006", "addr_type": 0, "amount_percentage": 0.003, "tags": [], "maker_token_tags": [], "wallet_tag_v2": "TOP11" }
+      ]
+    }
+  }
+}

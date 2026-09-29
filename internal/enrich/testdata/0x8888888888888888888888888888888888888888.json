@@ -1,0 +1,43 @@
+{
+  "_comment": "合成夹具:与 0x1111... 数值完全相同,但全部用 camelCase 且不带信封。用于断言别名兜底逻辑有效——真实接口目前是 snake_case,但字段命名风格变化是这类第三方接口最常见的破坏性改动。",
+  "info": {
+    "address": "0x8888888888888888888888888888888888888888",
+    "symbol": "TEST",
+    "name": "Test Token",
+    "holderCount": 500,
+    "circulatingSupply": "1000000000",
+    "totalSupply": "1000000000",
+    "liquidity": "12000.5",
+    "launchpadStatus": 1,
+    "launchpadProgress": 1,
+    "migrationMarketCap": 62000,
+    "price": { "price": "0.00003" },
+    "dev": { "creatorAddress": "0x1111111111111111111111111111111111111112", "creatorTokenStatus": "sell", "top10HolderRate": "0.098" },
+    "stat": { "holderCount": 500, "top10HolderRate": "0.098", "topBundlerTraderPercentage": "0.02", "creatorHoldRate": "0.01", "top70SniperHoldRate": "0.012" },
+    "walletTagsStat": { "sniperWallets": 10, "bundlerWallets": 2, "smartWallets": 3 },
+    "link": {}
+  },
+  "security": {
+    "isHoneypot": false,
+    "buyTax": "0",
+    "sellTax": "0",
+    "isOpenSource": true,
+    "isRenounced": true
+  },
+  "holders": {
+    "list": [
+      { "address": "0x000000000000000000000000000000000000dEaD", "addrType": 1, "amountPercentage": 0.6 },
+      { "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "addrType": 2, "exchange": "pancake_v2", "amountPercentage": 0.25 },
+      { "address": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "addrType": 0, "amountPercentage": 0.025 },
+      { "address": "0xcccccccccccccccccccccccccccccccccccccccc", "addrType": 0, "amountPercentage": 0.02, "makerTokenTags": ["bundler"] },
+      { "address": "0xdddddddddddddddddddddddddddddddddddddddd", "addrType": 0, "amountPercentage": 0.015 },
+      { "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "addrType": 0, "amountPercentage": 0.01 },
+      { "address": "0xf000000000000000000000000000000000000001", "addrType": 0, "amountPercentage": 0.008 },
+      { "address": "0xf000000000000000000000000000000000000002", "addrType": 0, "amountPercentage": 0.006 },
+      { "address": "0xf000000000000000000000000000000000000003", "addrType": 0, "amountPercentage": 0.005 },
+      { "address": "0xf000000000000000000000000000000000000004", "addrType": 0, "amountPercentage": 0.004 },
+      { "address": "0xf000000000000000000000000000000000000005", "addrType": 0, "amountPercentage": 0.003 },
+      { "address": "0xf000000000000000000000000000000000000006", "addrType": 0, "amountPercentage": 0.002 }
+    ]
+  }
+}
