@@ -533,14 +533,27 @@ func (s *screener) verifyOne(ctx context.Context, st *store.Store,
 		LaunchedAt:      time.Unix(rep.CreatedTimestamp, 0),
 	}
 
-	verdict := store.VerdictRejected
-	if res := enrich.Evaluate(rep, cand.PairAddress, c); res.Passed {
-		verdict = store.VerdictPassed
-		s.finish(ctx, tok, rep)
-	} else {
+	res, saved := s.finish(ctx, tok, rep)
+	switch {
+	case res.Inconclusive:
+		// "不知道"不是"不合格"。这里刻意**不标记**:标记要写 checked_at,而
+		// checked_at 一置位这条候选就再也不会被拾取,等于把一次数据缺失永久
+		// 固化成一条否决结论——正是 enrich/screen.go 里写明要避免的那种
+		// "最危险的失败模式"。留空则下轮自动重新核验。
+		//
+		// 代价要说清楚:若某个币**永远**判不出结果(比如怎么都识别不出 LP),
+		// 它每轮都会重花一次配额。等实测确认这类币多到值得处理时,再加一个
+		// 尝试计数字段把它挡掉。
+	case !res.Passed:
 		s.prefiltered.Add(1)
+		_ = st.MarkCandidates(ctx, []string{cand.ContractAddress}, store.VerdictRejected)
+	default:
+		// 先落库、成功了才标记。反过来会让"候选表说通过、结果表却没有"成为
+		// 永久状态,而且 checked_at 已置位,永远不会重试。
+		if saved {
+			_ = st.MarkCandidates(ctx, []string{cand.ContractAddress}, store.VerdictPassed)
+		}
 	}
-	_ = st.MarkCandidates(ctx, []string{cand.ContractAddress}, verdict)
 }
 
 // printCandidateProgress 打印候选池进度。scan-only 模式用它收尾。
@@ -741,6 +754,8 @@ func runTrenches(ctx context.Context, cfg *config.Config, st *store.Store,
 			continue
 		}
 		s.dumpRaw(t.Address, rep)
+		// 战壕来源的代币不进候选表(它们不在 chain_candidates 里),
+		// 所以只看判定与落库的结果,没有候选需要回填标记
 		s.finish(ctx, tok, rep)
 	}
 	return s.report()
@@ -875,25 +890,38 @@ type screener struct {
 //
 // 抽出来是因为两条发现路径(扫库 / 战壕)到这里就汇合了:无论候选从哪来,
 // 拿到完整快照之后的判定与落库逻辑完全一样。
-func (s *screener) finish(ctx context.Context, tok model.Token, rep *enrich.GMGNTokenReport) {
+//
+// 两个返回值都不可省:
+//
+//	res   判定结论。调用方要靠 Inconclusive 与 !Passed 的区别来决定怎么标记候选
+//	saved 结果是否**确实落库了**。注意它不是"是否通过"——通过但写库失败同样
+//	      是 false。扫库路径必须据此决定要不要标记 passed:标记了就不再重试,
+//	      而结果却没进库,这条通过记录就永久消失了。
+func (s *screener) finish(ctx context.Context, tok model.Token,
+	rep *enrich.GMGNTokenReport) (enrich.ScreenResult, bool) {
+
 	res := enrich.Evaluate(rep, tok.PairAddress, s.criteria)
 
 	switch {
 	case res.Inconclusive:
 		s.inconclusive.Add(1)
 		log.Printf("  ⊘ %-22s 无法确定: %s", displayName(tok), res.ReasonString())
+		return res, false
 	case !res.Passed:
 		// 未通过的币不入库,也不逐条打印——候选数以千计,全打会淹没真正通过的那几条
-	default:
-		if err := s.st.SaveScreenMetrics(ctx, buildRecord(tok, rep, res, s.criteria)); err != nil {
-			s.failed.Add(1)
-			log.Printf("⚠️  写入 %s 的筛选结果失败: %v", tok.ContractAddress, err)
-			return
-		}
-		s.passed.Add(1)
-		log.Printf("  ✅ %-22s 市值 $%-8.0f 持币 %-5d 狙击 %.2f%% Top10 最大 %.2f%%",
-			displayName(tok), rep.MarketCap, rep.HolderCount, res.SniperRate, res.Top10MaxRate)
+		return res, false
 	}
+
+	if err := s.st.SaveScreenMetrics(ctx, buildRecord(tok, rep, res, s.criteria)); err != nil {
+		s.failed.Add(1)
+		log.Printf("⚠️  写入 %s 的筛选结果失败(候选不标记,下轮重试): %v",
+			tok.ContractAddress, err)
+		return res, false
+	}
+	s.passed.Add(1)
+	log.Printf("  ✅ %-22s 市值 $%-8.0f 持币 %-5d 狙击 %.2f%% Top10 最大 %.2f%%",
+		displayName(tok), rep.MarketCap, rep.HolderCount, res.SniperRate, res.Top10MaxRate)
+	return res, true
 }
 
 // handleFetchError 分类处理取数失败。
@@ -949,6 +977,15 @@ func (s *screener) report() error {
 	log.Printf("📊 已查询 %d,粗筛淘汰 %d,通过 %d,无法确定 %d,无数据 %d,失败 %d",
 		s.queried.Load(), s.prefiltered.Load(), s.passed.Load(),
 		s.inconclusive.Load(), s.noData.Load(), s.failed.Load())
+
+	// "无法确定"与"已写入失败"这两类都**没有标记候选**,下轮会原样重来。
+	// 不说清楚的话,看到"每轮都在核验同样多的币"会以为是去重坏了。
+	if n := s.inconclusive.Load(); n > 0 {
+		log.Printf("   ⚠️  其中 %d 个数据不足无法判定,候选未标记,下轮会重新核验(并再花一次配额)", n)
+	}
+	if n := s.failed.Load(); n > 0 {
+		log.Printf("   ⚠️  其中 %d 个因写入或调用失败未落库,候选未标记,下轮会重新核验", n)
+	}
 
 	// 粗筛省下的配额是本功能能不能在免费档跑起来的关键,值得明说。
 	// 权重口径:每个候选的第一段 1 个,进入第二段的再各加 6 个

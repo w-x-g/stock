@@ -1,0 +1,8 @@
+# 同步用的数据文件固定用 LF。
+#
+# 这是跨机器同步的硬要求:Windows 上 core.autocrlf=true 会把检出换成 CRLF,
+# 而 CRLF 会让解析出来的 verdict 变成 "rejected\r"——既通不过结论白名单,
+# 又看不出哪里错了。代码侧已经做了 TrimRight 兜底,这里再固定一次,保证两台
+# 机器检出的字节完全一致,git diff 也才是真实的差异。
+data/*.tsv   text eol=lf
+data/*.jsonl text eol=lf
