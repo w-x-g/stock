@@ -93,6 +93,12 @@ type TrenchesToken struct {
 	CreatorTokenStatus string
 	SmartDegenCount    int64
 	RenownedCount      int64
+
+	// 存在性标记:字段缺失与"值为 0"必须区分开,否则粗筛会把数据缺口
+	// 当成"持币 0 人""市值 $0""未毕业"而误杀。理由与 GMGNTokenReport 同款。
+	hasHolderCount     bool
+	hasMarketCap       bool
+	hasLaunchpadStatus bool
 }
 
 // TrenchesAll 分档取全战壕列表。
@@ -342,8 +348,11 @@ func parseTrenchesToken(f gmgnFields) TrenchesToken {
 		decode(raw, &t.Exchange)
 	}
 
-	t.HolderCount, _ = pickInt64(f, "holder_count", "holderCount")
-	t.MarketCap, _ = pickFloat(f, "market_cap", "marketCap")
+	// 这里必须保留 pickInt64/pickFloat 的 ok:以前丢掉了它,于是粗筛分不清
+	// "字段没返回"与"值是 0"。战壕列表是按市值与持币数服务端筛过的,这两个
+	// 字段理论上必到,但"理论上"正是当初踩坑的方式——宁可多存两个 bool。
+	t.HolderCount, t.hasHolderCount = pickInt64(f, "holder_count", "holderCount")
+	t.MarketCap, t.hasMarketCap = pickFloat(f, "market_cap", "marketCap")
 	t.Liquidity, _ = pickFloat(f, "liquidity")
 	t.Volume24h, _ = pickFloat(f, "volume_24h", "volume24h")
 	t.Swaps24h, _ = pickInt64(f, "swaps_24h", "swaps24h")
@@ -377,7 +386,7 @@ func parseTrenchesToken(f gmgnFields) TrenchesToken {
 	if raw, _, ok := f.pick("launchpad"); ok {
 		decode(raw, &t.Launchpad)
 	}
-	t.LaunchpadStatus, _ = pickInt64(f, "launchpad_status", "launchpadStatus")
+	t.LaunchpadStatus, t.hasLaunchpadStatus = pickInt64(f, "launchpad_status", "launchpadStatus")
 	t.CreatedTimestamp, _ = pickInt64(f, "created_timestamp", "createdTimestamp")
 	t.CompleteTimestamp, _ = pickInt64(f, "complete_timestamp", "completeTimestamp")
 

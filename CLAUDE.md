@@ -8,7 +8,7 @@ Go 命令行工具,从 BNB Chain(BSC)上发现新发行的 meme 币,按四个硬
 
 四个条件:
 
-1. 持币人数在区间内(默认 100~2000,两端均为严格不等式)
+1. 持币人数在区间内(默认 200~2000,两端均为严格不等式 —— 即 >200 且 <2000)
 2. 狙击占比低于上限(默认 5%)
 3. Top10 中**每个**持币者的持仓不超过上限(默认 3%,已剔除 LP 与销毁地址)
 4. 市值低于上限(默认 $50,000)
@@ -154,6 +154,32 @@ GMGN 配额是本项目最稀缺的资源,相关设计集中在三处:
 
 对应的另一条原则是**宁漏勿错**:`ScreenResult.Inconclusive`(不知道)必须与 `Passed=false`(明确不合格)严格区分,后者当前者会让整轮静默产出空结果。同理,一条 LP 都没识别出来时默认判 `Inconclusive`(`SCREEN_STRICT_LP=true`)。
 
+### 字段缺失不得成为淘汰依据
+
+这是上一条的推论,单独列出来是因为它踩过坑:**"字段没返回"与"值是 0"必须区分**。直接拿零值去比,会把一次数据缺口固化成一条否决结论。
+
+判断"拿到了吗"用存在性标记,不要判零值:
+
+| 层 | 标记 |
+|---|---|
+| GMGN 报告 | `GMGNTokenReport.hasXxx`(`hasHolderCount` / `hasMarketCap` / `hasSniperWallets` / `hasTop10Rate` / `hasLaunchpadStatus`),汇总在 `Missing` / `Complete` |
+| 战壕列表 | `TrenchesToken.hasXxx` |
+| DexScreener | `DexPair.HasLiquidity`(`dexPairRaw.Liquidity` 用**指针**,nil 表示对方没给这个对象) |
+
+两层的处置不同:
+
+- **判定层**(`Evaluate` / `PreFilter` / `TrenchesPreFilter`):字段缺失判 `Inconclusive`,**不判不合格**。`Passed` 另外还要求 `rep.Complete`,所以缺失字段的币不会被误收进结果。
+- **粗筛层**(`PreFilter` / `LiquidityFilter`):字段缺失**放行**,让它进下一段。放行还有实际收益——第二段会取 holders 文档,`mergeReport` 能把那边独有的字段补进来。DexScreener 的流动性缺失放行后要多花一次 GMGN 配额,这是刻意的取舍。
+
+方向相反的情况不用管:`is_honeypot`、`sniper_wallets` 缺失时零值等于放行,与上面规则一致。
+
+实测(2026-09-29)两个数据源缺口的量级,供判断这类问题值不值得追:
+
+- **GMGN**:抽样 15 个真实候选,`holder_count` / `market_cap` / `sniper_wallets` / `top_10_holder_rate` / `launchpad_status` 缺失率**均为 0**。所以"缺失判 Inconclusive"这条路径实际很少触发,不会造成大批候选反复重核验。
+- **DexScreener**:随机抽 1,200 个被判 `nolp` 的候选重查,**98.8% 是对方完全不认识**(淘汰正确),只有 **0.1% 是"有交易对但没给流动性字段"**——即 `0x9803b9e4…7777`(`无用`)那一类。真实但罕见,推算全库约几十到几百个(样本太小,区间很宽)。
+
+因此改动后**不要**用一次运行的通过数涨跌来判断它有没有生效——量级太小,淹没在噪声里。
+
 ### 数据
 
 `migrations/MigrateDir` 按文件名字典序执行、无版本追踪表、语句全部幂等。
@@ -179,6 +205,28 @@ GMGN 配额是本项目最稀缺的资源,相关设计集中在三处:
 第三条是刻意的:`Inconclusive` 不等于"不合格"。给它写 `checked_at` 等于把一次数据缺失永久固化成否决结论,而 `internal/enrich/screen.go` 明确要求这两者必须区分("把前者当后者会让整轮筛选静默产出空结果,是最危险的失败模式")。
 
 代价要清楚:**永远判不出结果的币会每轮重花一次配额**(比如怎么都识别不出 LP 的币,每轮都要重取权重 6 的持币明细)。`report()` 会把"无法确定"和"失败未落库"的数量单独打出来提醒。真到了这类币多到值得处理的时候,再加一个尝试计数字段把它们挡掉——那需要新迁移。
+
+### 改了阈值之后:已有结论不会自动失效
+
+阈值(持币区间、狙击上限、Top10 上限、市值上限)一改,`token_screen_metrics` 里已有的记录就可能是过期的——但它们对应的候选在 `chain_candidates` 里已经标记了结论,**`PendingCandidates` 再也不会拾取**,所以不会自动重判。
+
+改完阈值务必想清楚这两件事:
+
+- **放宽**阈值(比如下界 200 → 100):原本被拒的币可能变合格,但它们已标记 `rejected`,**只能靠重跑**捞回来。做法是把要重判的那批的 `verdict` / `checked_at` 清回 NULL,再跑一次 `screen`(见 `scratch/resetnolp`,一次性工具,该目录已 gitignore)。
+- **收紧**阈值(比如下界 100 → 200):只可能**增加**淘汰,不会有新币变合格,所以只需**清理**,不需要重跑。
+
+清理可以完全离线完成:`holder_count` / `sniper_rate` / `top10_max_rate` / `market_cap` / `launchpad_status` / `is_honeypot` 都是当初 `Evaluate` 算出来并存进库的,拿它们直接比新阈值即可复现判定,**零 API 调用**。示例见 `scratch/recheck`。
+
+⚠️ 清理时**两张表必须一起改**:删了结果表却忘了把候选表的 `verdict` 由 `passed` 改掉,就会留下"候选表说通过、结果表却没有它"的孤儿记录——正是同步功能专门拦下的那种自相矛盾。改完跑一次这个查询确认是 0:
+
+```sql
+SELECT COUNT(*) FROM chain_candidates c
+WHERE c.verdict = 'passed'
+  AND NOT EXISTS (SELECT 1 FROM token_screen_metrics m
+                  WHERE m.contract_address = c.contract_address);
+```
+
+实测(2026-09-30,下界 100 → 200):78 条结果中 23 条因持币 107~200 不合格,清理后为 55 条。
 
 ## 约定
 

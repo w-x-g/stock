@@ -89,23 +89,32 @@ func (r ScreenResult) ReasonString() string {
 // 刻意不复用 Evaluate:Evaluate 在缺明细时会判为"无法确定"——那对最终结论是对的,
 // 但这里需要的是一个明确的"要不要继续花钱"的答案。两者的判定语义不同。
 //
+// **字段缺失时一律放行,不否决**:这里只回答"有没有明确的淘汰理由",而"字段没
+// 返回"不是淘汰理由。放行还有一层实际收益——第二段会取 holders 文档,而
+// mergeReport 能把那边独有的字段补进来,所以第一段缺的字段有可能在第二段被填上。
+// 代价是这些币要多花一次配额,换的是不误杀。
+//
 // 返回的 reason 只用于日志。
 func PreFilter(rep *GMGNTokenReport, c ScreenCriteria) (bool, string) {
 	if rep == nil {
 		return false, "无数据"
 	}
-	if c.RequireMigrated && rep.LaunchpadStatus < gmgnLaunchpadLive {
+	if c.RequireMigrated && rep.hasLaunchpadStatus && rep.LaunchpadStatus < gmgnLaunchpadLive {
 		return false, fmt.Sprintf("未毕业(launchpad_status=%d)", rep.LaunchpadStatus)
 	}
-	if rep.HolderCount <= c.MinHolders || rep.HolderCount >= c.MaxHolders {
+	// 每个判断都先问"这个字段拿到了吗":拿不到就不构成淘汰理由。
+	// 以前直接拿零值比,于是"字段没返回"会被读成"持币 0 人""市值 $0"而被淘汰。
+	if rep.hasHolderCount && (rep.HolderCount <= c.MinHolders || rep.HolderCount >= c.MaxHolders) {
 		return false, fmt.Sprintf("持币人数 %d 不在 (%d, %d) 内",
 			rep.HolderCount, c.MinHolders, c.MaxHolders)
 	}
-	if rep.MarketCap <= 0 || rep.MarketCap >= c.MaxMarketCap {
+	if rep.hasMarketCap && (rep.MarketCap <= 0 || rep.MarketCap >= c.MaxMarketCap) {
 		return false, fmt.Sprintf("市值 $%.0f 不低于上限 $%.0f",
 			rep.MarketCap, c.MaxMarketCap)
 	}
-	// 蜜罐是硬性否决:买得进卖不出
+	// 蜜罐是硬性否决:买得进卖不出。
+	// 这一项方向相反——security 文档没返回时 IsHoneypot 是 false,等于放行,
+	// 与上面的规则一致,不需要额外处理。
 	if rep.IsHoneypot {
 		return false, "蜜罐(买得进卖不出)"
 	}
@@ -128,20 +137,23 @@ func PreFilter(rep *GMGNTokenReport, c ScreenCriteria) (bool, string) {
 //
 // minCreatedUnix 是时间窗口下界(Unix 秒),传 0 表示不限。
 func TrenchesPreFilter(t TrenchesToken, c ScreenCriteria, minCreatedUnix int64) (bool, string) {
-	// 战壕的 completed 分类本身就是"已毕业"的证据,所以这里只做一致性兜底,
+	// 与 PreFilter 同一条规则:**字段缺失放行,不否决**。缺失是"不知道",
+	// 不是"不合格",按零值判会把数据缺口变成一条否决结论。
+	//
+	// 战壕的 completed 分类本身就是"已毕业"的证据,所以下面只做一致性兜底,
 	// 不作为主要判据——实测该分类的 launchpad_status 恒为 1。
-	if c.RequireMigrated && t.LaunchpadStatus < gmgnLaunchpadLive {
+	if c.RequireMigrated && t.hasLaunchpadStatus && t.LaunchpadStatus < gmgnLaunchpadLive {
 		return false, fmt.Sprintf("未毕业(launchpad_status=%d)", t.LaunchpadStatus)
 	}
 	// 时间窗口只能在客户端过滤:实测接口的 min_created / max_created 不起作用
 	if minCreatedUnix > 0 && t.CreatedTimestamp > 0 && t.CreatedTimestamp < minCreatedUnix {
 		return false, "超出时间窗口"
 	}
-	if t.HolderCount <= c.MinHolders || t.HolderCount >= c.MaxHolders {
+	if t.hasHolderCount && (t.HolderCount <= c.MinHolders || t.HolderCount >= c.MaxHolders) {
 		return false, fmt.Sprintf("持币人数 %d 不在 (%d, %d) 内",
 			t.HolderCount, c.MinHolders, c.MaxHolders)
 	}
-	if t.MarketCap <= 0 || t.MarketCap >= c.MaxMarketCap {
+	if t.hasMarketCap && (t.MarketCap <= 0 || t.MarketCap >= c.MaxMarketCap) {
 		return false, fmt.Sprintf("市值 $%.0f 不低于上限 $%.0f",
 			t.MarketCap, c.MaxMarketCap)
 	}
@@ -181,34 +193,73 @@ func Evaluate(rep *GMGNTokenReport, pairAddr string, c ScreenCriteria) ScreenRes
 	r.Coverage = rep.Coverage
 	r.SniperRate = sniperRate(rep, c.SniperBasis)
 
+	// 下面四条判断都遵循同一条规则:**字段缺失判为"无法确定",不判"不合格"**。
+	//
+	// 直接拿零值去比是错的:那样"接口没返回 holder_count"会变成"持币 0 人,
+	// 不在区间内",一条数据缺口被永久固化成一条否决结论。这正是本文件开头
+	// 写明要避免的失败模式。缺失统一置 Inconclusive,由调用方决定怎么处置。
+
 	// ---- 毕业状态(可选) ----
-	// 放在最前面:它是唯一"看一个字段就知道"的条件,不通过就没必要往下算。
-	r.PassMigrated = !c.RequireMigrated || rep.LaunchpadStatus >= gmgnLaunchpadLive
-	if !r.PassMigrated {
-		r.Reasons = append(r.Reasons, fmt.Sprintf(
-			"未毕业(launchpad_status=%d,需 ≥ %d)", rep.LaunchpadStatus, gmgnLaunchpadLive))
+	// 放在最前面:它是唯一"看一个字段就知道"的条件。
+	switch {
+	case !c.RequireMigrated:
+		r.PassMigrated = true
+	case !rep.hasLaunchpadStatus:
+		// launchpad_status 的 0 是合法值("未开盘"),所以缺失必须靠标记识别
+		r.Inconclusive = true
+		r.Reasons = append(r.Reasons, "接口未返回 launchpad_status,无法判断是否已毕业")
+	default:
+		r.PassMigrated = rep.LaunchpadStatus >= gmgnLaunchpadLive
+		if !r.PassMigrated {
+			r.Reasons = append(r.Reasons, fmt.Sprintf(
+				"未毕业(launchpad_status=%d,需 ≥ %d)", rep.LaunchpadStatus, gmgnLaunchpadLive))
+		}
 	}
 
 	// ---- 条件 1:持币人数 ----
-	r.PassHolder = rep.HolderCount > c.MinHolders && rep.HolderCount < c.MaxHolders
-	if !r.PassHolder {
-		r.Reasons = append(r.Reasons, fmt.Sprintf("持币人数 %d 不在 (%d, %d) 内",
-			rep.HolderCount, c.MinHolders, c.MaxHolders))
+	switch {
+	case !rep.hasHolderCount:
+		r.Inconclusive = true
+		r.Reasons = append(r.Reasons, "接口未返回 holder_count,无法判断持币人数")
+	default:
+		r.PassHolder = rep.HolderCount > c.MinHolders && rep.HolderCount < c.MaxHolders
+		if !r.PassHolder {
+			r.Reasons = append(r.Reasons, fmt.Sprintf("持币人数 %d 不在 (%d, %d) 内",
+				rep.HolderCount, c.MinHolders, c.MaxHolders))
+		}
 	}
 
 	// ---- 条件 4:市值 ----
-	// 市值为 0 视为数据缺失而非"免费的币"——上游已按 >0 判定,这里保持一致。
-	r.PassMarketCap = rep.MarketCap > 0 && rep.MarketCap < c.MaxMarketCap
-	if !r.PassMarketCap {
-		r.Reasons = append(r.Reasons, fmt.Sprintf("市值 $%.0f 不低于上限 $%.0f",
-			rep.MarketCap, c.MaxMarketCap))
+	// 市值 = 价格 × 供应量,两者缺一就算不出来。算不出来不等于"市值不达标"。
+	switch {
+	case !rep.hasMarketCap:
+		r.Inconclusive = true
+		r.Reasons = append(r.Reasons, "接口未返回价格或供应量,算不出市值")
+	default:
+		// 拿到了字段但市值为 0,是明确的"免费的币"之外的异常情形,照判不合格
+		r.PassMarketCap = rep.MarketCap > 0 && rep.MarketCap < c.MaxMarketCap
+		if !r.PassMarketCap {
+			r.Reasons = append(r.Reasons, fmt.Sprintf("市值 $%.0f 不低于上限 $%.0f",
+				rep.MarketCap, c.MaxMarketCap))
+		}
 	}
 
 	// ---- 条件 2:狙击占比 ----
-	r.PassSniper = r.SniperRate < c.MaxSniperRate
-	if !r.PassSniper {
-		r.Reasons = append(r.Reasons, fmt.Sprintf("狙击占比 %.2f%% 不低于 %.2f%%(%s 口径)",
-			r.SniperRate, c.MaxSniperRate, basisName(c.SniperBasis)))
+	// count 口径 = sniper_wallets / holder_count,两个字段缺一不可。
+	//
+	// amount 口径刻意不在这里判缺失:它取的是明细里带 sniper 标签的持仓之和,
+	// 而接口本来就不逐条打标(见 SniperAmountRate 的说明),"没有标签"是常态而非
+	// 数据缺口,这个值按设计就是**下界**,照判即可。
+	if !strings.EqualFold(strings.TrimSpace(c.SniperBasis), "amount") &&
+		(!rep.hasSniperWallets || !rep.hasHolderCount) {
+		r.Inconclusive = true
+		r.Reasons = append(r.Reasons, "接口未返回 sniper_wallets 或 holder_count,算不出狙击占比")
+	} else {
+		r.PassSniper = r.SniperRate < c.MaxSniperRate
+		if !r.PassSniper {
+			r.Reasons = append(r.Reasons, fmt.Sprintf("狙击占比 %.2f%% 不低于 %.2f%%(%s 口径)",
+				r.SniperRate, c.MaxSniperRate, basisName(c.SniperBasis)))
+		}
 	}
 
 	// ---- 条件 3:Top10 单个持币者占比 ----

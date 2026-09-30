@@ -535,10 +535,11 @@ type GMGNTokenReport struct {
 	// 统一判定——在子文档里判会把别的文档负责的字段也算成缺失。
 	// 用标记而不是判零值,是因为 sniper_wallets 这类字段的 0 是合法值
 	// (确实没有狙击钱包),必须与"字段没返回"区分开。
-	hasHolderCount   bool
-	hasMarketCap     bool
-	hasSniperWallets bool
-	hasTop10Rate     bool
+	hasHolderCount     bool
+	hasMarketCap       bool
+	hasSniperWallets   bool
+	hasTop10Rate       bool
+	hasLaunchpadStatus bool
 }
 
 // GMGNHolder 是一个持有者条目,只保留判定与排障需要的字段。
@@ -787,15 +788,18 @@ func mergeReport(dst, src *GMGNTokenReport) {
 		dst.Top10Rate = src.Top10Rate
 		dst.hasTop10Rate = true
 	}
+	if !dst.hasLaunchpadStatus && src.hasLaunchpadStatus {
+		dst.LaunchpadStatus = src.LaunchpadStatus
+		dst.hasLaunchpadStatus = true
+	}
 	if dst.SniperAmountRate == 0 {
 		dst.SniperAmountRate = src.SniperAmountRate
 	}
 	if dst.ContractAddress == "" {
 		dst.ContractAddress = src.ContractAddress
 	}
-	if dst.LaunchpadStatus == 0 {
-		dst.LaunchpadStatus = src.LaunchpadStatus
-	}
+	// LaunchpadStatus 的合并已按存在性标记处理(见上),这里不能再按值合并:
+	// 值为 0 是合法状态,按值合并会把"对方没给"和"对方给了 0"混为一谈。
 	// 安全字段只可能来自 security 文档,不存在"被覆盖"的问题
 	if src.IsHoneypot {
 		dst.IsHoneypot = true
@@ -877,8 +881,11 @@ func parseTokenDocument(body []byte) (*GMGNTokenReport, error) {
 	}
 
 	// ---- 发行状态 ----
+	// 必须记存在性:LaunchpadStatus 的 0 是合法值("未开盘"),与"字段没返回"
+	// 完全两回事。判"已毕业"时若拿缺失当 0,会把数据缺口误判成"未毕业"而淘汰。
 	if v, ok := pickInt64(f, "launchpad_status", "launchpadStatus"); ok {
 		rep.LaunchpadStatus = int(v)
+		rep.hasLaunchpadStatus = true
 	}
 	if v, ok := pickFloat(f, "launchpad_progress", "launchpadProgress"); ok {
 		rep.LaunchpadProgress = v
@@ -1049,6 +1056,9 @@ func (rep *GMGNTokenReport) finish() {
 	}
 	if !rep.hasTop10Rate {
 		missing = append(missing, "top_10_holder_rate")
+	}
+	if !rep.hasLaunchpadStatus {
+		missing = append(missing, "launchpad_status")
 	}
 	if len(rep.Holders) == 0 {
 		// 条件 3 完全依赖明细,没有它就不算"字段齐全"

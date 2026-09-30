@@ -341,8 +341,9 @@ func liquidityPrefilter(ctx context.Context, st *store.Store, ds *enrich.DexScre
 	}
 
 	type batchResult struct {
-		kept   []store.Candidate
-		failed bool
+		kept    []store.Candidate
+		unknown int
+		failed  bool
 	}
 
 	// 结果用 channel 回传而不是共享切片:全仓库零 Mutex,汇总只由本协程做。
@@ -357,11 +358,11 @@ func liquidityPrefilter(ctx context.Context, st *store.Store, ds *enrich.DexScre
 		go func() {
 			defer wg.Done()
 			for b := range jobs {
-				k, f := prefetchLiquidity(ctx, st, ds, b, minLiquidity)
+				k, u, f := prefetchLiquidity(ctx, st, ds, b, minLiquidity)
 				if n := processed.Add(1); n%200 == 0 {
 					log.Printf("  … 流动性预筛已处理 %d/%d 批", n, len(batches))
 				}
-				results <- batchResult{kept: k, failed: f}
+				results <- batchResult{kept: k, unknown: u, failed: f}
 			}
 		}()
 	}
@@ -381,9 +382,10 @@ func liquidityPrefilter(ctx context.Context, st *store.Store, ds *enrich.DexScre
 	}()
 
 	var kept []store.Candidate
-	failed := 0
+	failed, unknown := 0, 0
 	for r := range results {
 		kept = append(kept, r.kept...)
+		unknown += r.unknown
 		if r.failed {
 			failed++
 		}
@@ -395,14 +397,22 @@ func liquidityPrefilter(ctx context.Context, st *store.Store, ds *enrich.DexScre
 		log.Printf("⚠️  预筛有 %d/%d 批请求失败,这些批次原样送入核验(不会误杀,只多花配额)",
 			failed, len(batches))
 	}
+	// 这一项是"对方有数据缺口"的规模。它不该被当成错误,但如果占比很高,
+	// 说明预筛省下的配额没有预期那么多,值得看一眼 DexScreener 那边怎么了。
+	if unknown > 0 {
+		log.Printf("ℹ️  其中 %d 个查到了交易对但对方未给流动性字段,已放行送核验(不算空池)",
+			unknown)
+	}
 	return kept, nil
 }
 
 // prefetchLiquidity 处理一批候选:批量查行情、分流,并把淘汰的写库。
 //
-// 第二个返回值表示这一批是否因为请求失败而整批放行。
+// 第二个返回值是"查到了交易对但对方没给流动性"的条数——这些按放行处理,
+// 单独计数是为了能观察 DexScreener 的数据缺口有多大。
+// 第三个返回值表示这一批是否因为请求失败而整批放行。
 func prefetchLiquidity(ctx context.Context, st *store.Store, ds *enrich.DexScreener,
-	batch []store.Candidate, minLiquidity float64) (kept []store.Candidate, failed bool) {
+	batch []store.Candidate, minLiquidity float64) (kept []store.Candidate, unknown int, failed bool) {
 
 	addrs := make([]string, len(batch))
 	for i, c := range batch {
@@ -412,14 +422,14 @@ func prefetchLiquidity(ctx context.Context, st *store.Store, ds *enrich.DexScree
 	pairs, err := ds.Tokens(ctx, addrs)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, true
+			return nil, 0, true
 		}
-		return batch, true
+		return batch, 0, true
 	}
 
-	_, dropped := enrich.LiquidityFilter(addrs, pairs, minLiquidity)
+	_, dropped, unknownAddrs := enrich.LiquidityFilter(addrs, pairs, minLiquidity)
 	if len(dropped) == 0 {
-		return batch, false
+		return batch, len(unknownAddrs), false
 	}
 	if err := st.MarkCandidates(ctx, dropped, store.VerdictNoLiquidity); err != nil {
 		// 标记失败不影响本批的判定:这些候选下轮会被重新拾取,再筛一次而已
@@ -436,7 +446,7 @@ func prefetchLiquidity(ctx context.Context, st *store.Store, ds *enrich.DexScree
 			kept = append(kept, c)
 		}
 	}
-	return kept, false
+	return kept, len(unknownAddrs), false
 }
 
 // waitIfPaused 在"全体暂停"期间阻塞,直到解除或 ctx 结束。

@@ -120,7 +120,7 @@ type Screen struct {
 // 筛选条件的默认阈值,与用户需求一一对应。
 const (
 	DefaultScreenDays          = 5
-	DefaultScreenMinHolders    = 100
+	DefaultScreenMinHolders    = 200
 	DefaultScreenMaxHolders    = 2000
 	DefaultScreenMaxSniperRate = 5.0
 	DefaultScreenMaxTop10Rate  = 3.0

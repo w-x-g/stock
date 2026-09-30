@@ -77,6 +77,13 @@ type DexPair struct {
 	BaseAddress  string
 	QuoteAddress string
 	LiquidityUSD float64
+	// HasLiquidity 表示对方**确实返回了** liquidity 字段。
+	//
+	// 必须与 LiquidityUSD==0 区分开,否则会把"对方数据缺口"当成"空池"淘汰掉。
+	// 实测(2026-09-29):0x9803b9e4…7777(`无用`)的交易对在 DexScreener 上
+	// 有 24 小时 540 笔成交,却**完全没有 liquidity 字段**,而 volume 全是 0
+	// ——是对方索引残缺,不是真的没有池子。同一时刻 GMGN 给的流动性是 $13,786。
+	HasLiquidity bool
 	MarketCap    float64
 	PriceUSD     float64
 }
@@ -173,15 +180,20 @@ func (d *DexScreener) fetch(ctx context.Context, addrs []string) ([]DexPair, err
 
 	out := make([]DexPair, 0, len(parsed.Pairs))
 	for _, p := range parsed.Pairs {
-		out = append(out, DexPair{
+		pair := DexPair{
 			ChainID:      p.ChainID,
 			PairAddress:  p.PairAddress,
 			BaseAddress:  p.BaseToken.Address,
 			QuoteAddress: p.QuoteToken.Address,
-			LiquidityUSD: p.Liquidity.USD,
 			MarketCap:    p.MarketCap,
 			PriceUSD:     parsePriceUSD(p.PriceUSD),
-		})
+		}
+		// 指针为 nil 表示响应里根本没有这个对象——是数据缺口,不是"流动性为 0"
+		if p.Liquidity != nil {
+			pair.LiquidityUSD = p.Liquidity.USD
+			pair.HasLiquidity = true
+		}
+		out = append(out, pair)
 	}
 	return out, nil
 }
@@ -222,7 +234,8 @@ type dexPairRaw struct {
 	QuoteToken struct {
 		Address string `json:"address"`
 	} `json:"quoteToken"`
-	Liquidity struct {
+	// 用指针而不是值:字段缺失与"值为 0"必须能区分开,理由见 DexPair.HasLiquidity
+	Liquidity *struct {
 		USD float64 `json:"usd"`
 	} `json:"liquidity"`
 	MarketCap float64 `json:"marketCap"`
@@ -243,19 +256,37 @@ func parsePriceUSD(s string) float64 {
 
 // LiquidityFilter 是流动性预筛的判定(纯函数,便于测试)。
 //
-// 返回应该保留和应该淘汰的地址。规则只有一条:
-// **查到交易对,且最大流动性不低于门槛**。
+// 三条规则,关键是第二条:
+//
+//	查不到交易对       → 淘汰(对方完全不认识它,这是可靠的"空池"信号)
+//	查到但没给流动性   → **放行**(对方的数据缺口,不是空池)
+//	流动性低于门槛     → 淘汰
 //
 // 门槛默认取 1 美元而不是更大值:样本里已毕业的最低流动性是 3.48,
 // 留出余量后既不会误杀,又能把流动性 0~0.5 的空池全部拦住。
-func LiquidityFilter(addrs []string, pairs map[string]DexPair, minLiquidityUSD float64) (kept, dropped []string) {
+//
+// 第二条原先并进第一条里,代价是误杀——实测 0x9803b9e4…7777(`无用`)的交易对
+// 在 DexScreener 上有 24 小时 540 笔成交、却完全没有 liquidity 字段,于是被当成
+// 空池丢掉;而同一时刻 GMGN 显示它有 $13,786 流动性、持币 353、已毕业,四项全过。
+//
+// 放行会让这些币多花一次 GMGN 配额,但这是仓库一贯的取舍:预筛的批次级失败处理
+// 早就写着"绝不因为第三方接口抖动把候选误判掉",字段级缺失没有理由例外。
+//
+// 返回的第三个值 unknown 供调用方统计与打印,便于观察对方的数据缺口有多大。
+func LiquidityFilter(addrs []string, pairs map[string]DexPair, minLiquidityUSD float64) (kept, dropped, unknown []string) {
 	for _, a := range addrs {
 		p, ok := pairs[strings.ToLower(a)]
-		if !ok || p.LiquidityUSD < minLiquidityUSD {
+		switch {
+		case !ok:
 			dropped = append(dropped, a)
-			continue
+		case !p.HasLiquidity:
+			kept = append(kept, a)
+			unknown = append(unknown, a)
+		case p.LiquidityUSD < minLiquidityUSD:
+			dropped = append(dropped, a)
+		default:
+			kept = append(kept, a)
 		}
-		kept = append(kept, a)
 	}
-	return kept, dropped
+	return kept, dropped, unknown
 }

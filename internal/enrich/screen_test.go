@@ -1,6 +1,7 @@
 package enrich
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,7 +19,7 @@ const (
 // testCriteria 与 config 的默认阈值保持一致。
 func testCriteria() ScreenCriteria {
 	return ScreenCriteria{
-		MinHolders:      100,
+		MinHolders:      200,
 		MaxHolders:      2000,
 		MaxSniperRate:   5,
 		SniperBasis:     "count",
@@ -263,7 +264,7 @@ func TestEvaluateSingleConditionFailures(t *testing.T) {
 		{"市值缺失", "mcap", func(r *GMGNTokenReport) { r.MarketCap = 0 }},
 		{"持币人数过低", "holder", func(r *GMGNTokenReport) { r.HolderCount = 50 }},
 		{"持币人数过高", "holder", func(r *GMGNTokenReport) { r.HolderCount = 5000 }},
-		{"持币人数恰好等于下界", "holder", func(r *GMGNTokenReport) { r.HolderCount = 100 }},
+		{"持币人数恰好等于下界", "holder", func(r *GMGNTokenReport) { r.HolderCount = 200 }},
 		{"狙击占比超限", "sniper", func(r *GMGNTokenReport) {
 			r.SniperWallets = 60
 			r.SniperCountRate = 12
@@ -437,12 +438,21 @@ func TestParseMissingFieldsReported(t *testing.T) {
 	if len(rep.Holders) != 0 {
 		t.Errorf("没有明细时 Holders 应为空")
 	}
-	// 唯一真正缺失的是 holders
+	// 这份响应里确实没给 launchpad_status,所以它和 holders 都该被报出来。
+	//
+	// launchpad_status 必须计入缺失:它的 0 是合法值("未开盘"),若拿零值当
+	// "未毕业",一次数据缺口就会变成一条否决结论(实测撞过同类问题)。
 	if rep.Complete {
 		t.Errorf("缺明细时不应判为完整")
 	}
-	if len(rep.Missing) != 1 || rep.Missing[0] != "holders" {
-		t.Errorf("缺失项应只有 holders,实际 %v", rep.Missing)
+	want := map[string]bool{"holders": true, "launchpad_status": true}
+	if len(rep.Missing) != len(want) {
+		t.Fatalf("缺失项应为 %v,实际 %v", want, rep.Missing)
+	}
+	for _, m := range rep.Missing {
+		if !want[m] {
+			t.Errorf("不该把 %s 算成缺失", m)
+		}
 	}
 }
 
@@ -615,4 +625,141 @@ func TestMarshalTokenReportRoundTrip(t *testing.T) {
 	if !back.Complete {
 		t.Errorf("回读后应仍判为字段齐全,缺失: %v", back.Missing)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// 字段缺失:不得成为淘汰依据
+// ---------------------------------------------------------------------------
+//
+// 这一组用例锁定的是本仓库明确写下的不变式:
+//
+//	Inconclusive(不知道)必须与 Passed=false(明确不合格)区分开,
+//	把前者当后者会让整轮筛选静默产出错误的否决结论。
+//
+// 曾经的写法是直接拿零值去比,于是"接口没返回 holder_count"被读成"持币 0 人,
+// 不在区间内"——一条数据缺口固化成一条否决结论。
+
+// fullReport 造一份字段齐全、判定应当通过的报告,供缺失用例做对照。
+func fullReport() *GMGNTokenReport {
+	rep := &GMGNTokenReport{
+		HolderCount:     500,
+		MarketCap:       20000,
+		SniperWallets:   10,
+		LaunchpadStatus: 1,
+		Holders: []GMGNHolder{
+			{Address: "0xpool", AmountRate: 30, AddrType: 2}, // LP,判定时会被剔除
+			{Address: "0xh1", AmountRate: 1.5},
+			{Address: "0xh2", AmountRate: 1.0},
+		},
+	}
+	rep.hasHolderCount = true
+	rep.hasMarketCap = true
+	rep.hasSniperWallets = true
+	rep.hasTop10Rate = true
+	rep.hasLaunchpadStatus = true
+	rep.finish()
+	return rep
+}
+
+// TestFullReportPasses 是对照组:先证明这份报告本身能通过,下面清字段才有意义。
+func TestFullReportPasses(t *testing.T) {
+	rep := fullReport()
+	if !rep.Complete {
+		t.Fatalf("对照报告应当是字段齐全的,缺失: %v", rep.Missing)
+	}
+	res := Evaluate(rep, "", testCriteria())
+	if !res.Passed {
+		t.Fatalf("对照报告应当通过,实际:%s", res.ReasonString())
+	}
+}
+
+// TestEvaluateMissingFieldsIsInconclusive 逐个清掉判定所需的字段,
+// 确认结果是"无法确定"而不是"不合格"。
+func TestEvaluateMissingFieldsIsInconclusive(t *testing.T) {
+	cases := []struct {
+		name  string
+		clear func(*GMGNTokenReport)
+	}{
+		{"缺 holder_count", func(r *GMGNTokenReport) { r.hasHolderCount = false; r.HolderCount = 0 }},
+		{"缺 market_cap", func(r *GMGNTokenReport) { r.hasMarketCap = false; r.MarketCap = 0 }},
+		{"缺 sniper_wallets", func(r *GMGNTokenReport) { r.hasSniperWallets = false; r.SniperWallets = 0 }},
+		{"缺 launchpad_status", func(r *GMGNTokenReport) { r.hasLaunchpadStatus = false; r.LaunchpadStatus = 0 }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rep := fullReport()
+			tc.clear(rep)
+			rep.finish()
+
+			res := Evaluate(rep, "", testCriteria())
+			if res.Passed {
+				t.Fatal("字段缺失时不该判为通过")
+			}
+			if !res.Inconclusive {
+				t.Errorf("字段缺失必须判为 Inconclusive(不知道),不能判成明确不合格;原因:%s",
+					res.ReasonString())
+			}
+		})
+	}
+}
+
+// TestPreFilterLetsMissingFieldsThrough 确认粗筛在字段缺失时**放行**而不是否决。
+//
+// 放行还有一层实际收益:第二段会取 holders 文档,而 mergeReport 能把那边独有的
+// 字段补进来,所以第一段缺的字段有可能在第二段被填上。
+func TestPreFilterLetsMissingFieldsThrough(t *testing.T) {
+	cases := []struct {
+		name  string
+		clear func(*GMGNTokenReport)
+	}{
+		{"缺 holder_count", func(r *GMGNTokenReport) { r.hasHolderCount = false; r.HolderCount = 0 }},
+		{"缺 market_cap", func(r *GMGNTokenReport) { r.hasMarketCap = false; r.MarketCap = 0 }},
+		{"缺 launchpad_status", func(r *GMGNTokenReport) { r.hasLaunchpadStatus = false; r.LaunchpadStatus = 0 }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rep := fullReport()
+			tc.clear(rep)
+
+			ok, reason := PreFilter(rep, testCriteria())
+			if !ok {
+				t.Errorf("字段缺失时应当放行,不该淘汰(原因:%s)", reason)
+			}
+		})
+	}
+}
+
+// TestPreFilterStillRejectsRealFailures 是对照组:放行只针对**字段缺失**,
+// 真正的"取到了值但不达标"必须照旧淘汰,否则粗筛就白做了。
+func TestPreFilterStillRejectsRealFailures(t *testing.T) {
+	cases := []struct {
+		name string
+		set  func(*GMGNTokenReport)
+	}{
+		{"持币人数超上限", func(r *GMGNTokenReport) { r.HolderCount = 5000 }},
+		{"持币人数低于下限", func(r *GMGNTokenReport) { r.HolderCount = 50 }},
+		{"市值超上限", func(r *GMGNTokenReport) { r.MarketCap = 999999 }},
+		{"未毕业", func(r *GMGNTokenReport) { r.LaunchpadStatus = 0 }},
+		{"蜜罐", func(r *GMGNTokenReport) { r.IsHoneypot = true }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rep := fullReport()
+			tc.set(rep)
+
+			if ok, reason := PreFilter(rep, testCriteria()); ok {
+				t.Errorf("这是明确的淘汰理由,不该放行(市值/持币等:%+v)", repr(rep))
+				_ = reason
+			}
+		})
+	}
+}
+
+// repr 只是给失败信息一点上下文,避免打印整个报告。
+func repr(r *GMGNTokenReport) string {
+	return fmt.Sprintf("持币 %d 市值 %.0f 状态 %d 蜜罐 %v",
+		r.HolderCount, r.MarketCap, r.LaunchpadStatus, r.IsHoneypot)
 }

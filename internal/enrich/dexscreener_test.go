@@ -229,19 +229,27 @@ func TestDexTokensRespectsContext(t *testing.T) {
 	}
 }
 
-// TestLiquidityFilter 覆盖分流规则的三条边界。
+// TestLiquidityFilter 覆盖分流规则的边界。
+//
+// 注意 0xempty 与 0xnodata 的区别,这正是本功能的核心:
+//
+//	0xempty   对方**明确说**流动性是 0        → 空池,淘汰
+//	0xnodata  对方**根本没给**流动性字段      → 数据缺口,放行
+//
+// 两者在 JSON 反序列化后都可能是 0,靠 HasLiquidity 才能分开。
 func TestLiquidityFilter(t *testing.T) {
 	pairs := map[string]DexPair{
-		"0xdeep":  {LiquidityUSD: 13730},
-		"0xedge":  {LiquidityUSD: 1},   // 刚好等于门槛:应当保留
-		"0xempty": {LiquidityUSD: 0},   // 空池:淘汰
-		"0xdust":  {LiquidityUSD: 0.5}, // 有池子但形同空池:淘汰
+		"0xdeep":   {LiquidityUSD: 13730, HasLiquidity: true},
+		"0xedge":   {LiquidityUSD: 1, HasLiquidity: true},   // 刚好等于门槛:应当保留
+		"0xempty":  {LiquidityUSD: 0, HasLiquidity: true},   // 明确是空池:淘汰
+		"0xdust":   {LiquidityUSD: 0.5, HasLiquidity: true}, // 有池子但形同空池:淘汰
+		"0xnodata": {HasLiquidity: false},                   // 有交易对但对方没给流动性
 	}
-	addrs := []string{"0xdeep", "0xedge", "0xempty", "0xdust", "0xmissing"}
+	addrs := []string{"0xdeep", "0xedge", "0xempty", "0xdust", "0xnodata", "0xmissing"}
 
-	kept, dropped := LiquidityFilter(addrs, pairs, 1)
+	kept, dropped, unknown := LiquidityFilter(addrs, pairs, 1)
 
-	wantKept := map[string]bool{"0xdeep": true, "0xedge": true}
+	wantKept := map[string]bool{"0xdeep": true, "0xedge": true, "0xnodata": true}
 	if len(kept) != len(wantKept) {
 		t.Fatalf("保留 %v,期望 %v", kept, wantKept)
 	}
@@ -250,7 +258,7 @@ func TestLiquidityFilter(t *testing.T) {
 			t.Errorf("%s 不该被保留", a)
 		}
 	}
-	// 0xmissing 代表"接口完全不认识这个币",必须淘汰
+	// 0xmissing 代表"接口完全不认识这个币",这才是可靠的淘汰信号
 	wantDropped := map[string]bool{"0xempty": true, "0xdust": true, "0xmissing": true}
 	if len(dropped) != len(wantDropped) {
 		t.Fatalf("淘汰 %v,期望 %v", dropped, wantDropped)
@@ -259,6 +267,85 @@ func TestLiquidityFilter(t *testing.T) {
 		if !wantDropped[a] {
 			t.Errorf("%s 不该被淘汰", a)
 		}
+	}
+	// 数据缺口必须单独计数,否则观察不到对方缺口的规模
+	if len(unknown) != 1 || unknown[0] != "0xnodata" {
+		t.Errorf("未知流动性应当只有 0xnodata,实际 %v", unknown)
+	}
+}
+
+// TestDexTokensMarksMissingLiquidity 覆盖"响应里有交易对、但没有 liquidity 字段"。
+//
+// 这是实测撞到的真实形态(2026-09-29):0x9803b9e4…7777(`无用`)的交易对在
+// DexScreener 上有 24 小时 540 笔成交,却完全没有 liquidity 字段,而 volume
+// 全是 0——是对方索引残缺,不是真的没有池子。同一时刻 GMGN 给的流动性是 $13,786。
+//
+// 不把这种情况与"流动性为 0"分开,就会把一个四项全合格的币当空池淘汰掉。
+func TestDexTokensMarksMissingLiquidity(t *testing.T) {
+	const addr = "0x9803b9e4536e2ffdfcd745756f25243d82ad7777"
+	body := `{"schemaVersion":"1.0.0","pairs":[{
+		"chainId":"bsc","dexId":"pancakeswap","pairAddress":"0xpair",
+		"baseToken":{"address":"0x4ebf5fd25b02022afad96e2fa25da54a246fded0"},
+		"quoteToken":{"address":"` + addr + `"},
+		"priceNative":"1039674.1362",
+		"txns":{"h24":{"buys":261,"sells":279}},
+		"volume":{"h24":0,"h6":0,"h1":0,"m5":0}
+	}]}`
+
+	d := newTestDex(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(body))
+	})
+	pairs, err := d.Tokens(context.Background(), []string{addr})
+	if err != nil {
+		t.Fatalf("查询失败: %v", err)
+	}
+	p, ok := pairs[addr]
+	if !ok {
+		t.Fatal("应当能从 quoteToken 侧认出这个币")
+	}
+	if p.HasLiquidity {
+		t.Error("响应里没有 liquidity 字段,HasLiquidity 应当为 false")
+	}
+
+	// 分流结果:必须放行,不能当空池
+	kept, dropped, unknown := LiquidityFilter([]string{addr}, pairs, 1)
+	if len(kept) != 1 || len(dropped) != 0 {
+		t.Errorf("缺流动性字段应当放行,实际保留 %v / 淘汰 %v", kept, dropped)
+	}
+	if len(unknown) != 1 {
+		t.Errorf("应当计入未知,实际 %v", unknown)
+	}
+}
+
+// TestDexTokensZeroLiquidityIsNotUnknown 确认"明确给了 0"仍然会被淘汰。
+//
+// 与上一条互为对照:放行只针对**字段缺失**,不能把真正的空池也放进来,
+// 否则预筛就白做了。
+func TestDexTokensZeroLiquidityIsNotUnknown(t *testing.T) {
+	const addr = "0x0000000000000000000000000000000000000001"
+	body := `{"schemaVersion":"1.0.0","pairs":[{
+		"chainId":"bsc","pairAddress":"0xpair",
+		"baseToken":{"address":"` + addr + `"},
+		"quoteToken":{"address":"0xwbnb"},
+		"liquidity":{"usd":0,"base":0,"quote":0}
+	}]}`
+
+	d := newTestDex(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(body))
+	})
+	pairs, err := d.Tokens(context.Background(), []string{addr})
+	if err != nil {
+		t.Fatalf("查询失败: %v", err)
+	}
+	if !pairs[addr].HasLiquidity {
+		t.Error("响应里有 liquidity 对象,HasLiquidity 应当为 true")
+	}
+	kept, dropped, unknown := LiquidityFilter([]string{addr}, pairs, 1)
+	if len(kept) != 0 || len(dropped) != 1 {
+		t.Errorf("流动性为 0 应当淘汰,实际保留 %v / 淘汰 %v", kept, dropped)
+	}
+	if len(unknown) != 0 {
+		t.Errorf("这不是数据缺口,不该计入未知,实际 %v", unknown)
 	}
 }
 
