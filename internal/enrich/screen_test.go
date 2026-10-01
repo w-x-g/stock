@@ -19,13 +19,13 @@ const (
 // testCriteria 与 config 的默认阈值保持一致。
 func testCriteria() ScreenCriteria {
 	return ScreenCriteria{
-		MinHolders:      200,
+		MinHolders:      300,
 		MaxHolders:      2000,
 		MaxSniperRate:   5,
 		SniperBasis:     "count",
 		TopN:            10,
 		MaxHolderRate:   3,
-		MaxMarketCap:    50000,
+		MaxMarketCap:    1_000_000,
 		RequireMigrated: true,
 		StrictLP:        true,
 	}
@@ -260,11 +260,12 @@ func TestEvaluateSingleConditionFailures(t *testing.T) {
 		broken string // 期望失败的那一条
 		mutate func(*GMGNTokenReport)
 	}{
-		{"市值超限", "mcap", func(r *GMGNTokenReport) { r.MarketCap = 80000 }},
+		{"市值超限", "mcap", func(r *GMGNTokenReport) { r.MarketCap = 2_000_000 }},
 		{"市值缺失", "mcap", func(r *GMGNTokenReport) { r.MarketCap = 0 }},
 		{"持币人数过低", "holder", func(r *GMGNTokenReport) { r.HolderCount = 50 }},
 		{"持币人数过高", "holder", func(r *GMGNTokenReport) { r.HolderCount = 5000 }},
-		{"持币人数恰好等于下界", "holder", func(r *GMGNTokenReport) { r.HolderCount = 200 }},
+		// 下界是闭区间,所以"刚好差一个"才是不合格的那一侧
+		{"持币人数差一个到不了下界", "holder", func(r *GMGNTokenReport) { r.HolderCount = 299 }},
 		{"狙击占比超限", "sniper", func(r *GMGNTokenReport) {
 			r.SniperWallets = 60
 			r.SniperCountRate = 12
@@ -305,6 +306,39 @@ func TestEvaluateSingleConditionFailures(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestHolderLowerBoundIsInclusive 钉住持币人数下界的闭区间语义。
+//
+// 下界写的是"不少于 N 人",所以 N 本身**合格**;上界是"低于 N 人",所以 N 本身不合格。
+// 两端语义不对称,而同一个区间在 PreFilter / TrenchesPreFilter / Evaluate 三处各判一次
+// ——漏改任何一处都会让粗筛和最终判定对同一个币给出相反的答案。
+func TestHolderLowerBoundIsInclusive(t *testing.T) {
+	c := testCriteria() // MinHolders=300, MaxHolders=2000
+
+	cases := []struct {
+		holders int64
+		want    bool
+	}{
+		{c.MinHolders - 1, false}, // 299:差一个
+		{c.MinHolders, true},      // 300:等于下界,含等于
+		{c.MaxHolders - 1, true},  // 1999:紧贴上界之内
+		{c.MaxHolders, false},     // 2000:等于上界,不含等于
+	}
+
+	for _, tc := range cases {
+		rep := fullReport()
+		rep.HolderCount = tc.holders
+
+		if got := Evaluate(rep, "", c); got.PassHolder != tc.want {
+			t.Errorf("Evaluate:%d 人 PassHolder=%v,期望 %v(原因:%s)",
+				tc.holders, got.PassHolder, tc.want, got.ReasonString())
+		}
+		if ok, reason := PreFilter(rep, c); ok != tc.want {
+			t.Errorf("PreFilter:%d 人放行=%v,期望 %v(原因:%s)",
+				tc.holders, ok, tc.want, reason)
+		}
 	}
 }
 
@@ -740,7 +774,7 @@ func TestPreFilterStillRejectsRealFailures(t *testing.T) {
 	}{
 		{"持币人数超上限", func(r *GMGNTokenReport) { r.HolderCount = 5000 }},
 		{"持币人数低于下限", func(r *GMGNTokenReport) { r.HolderCount = 50 }},
-		{"市值超上限", func(r *GMGNTokenReport) { r.MarketCap = 999999 }},
+		{"市值超上限", func(r *GMGNTokenReport) { r.MarketCap = 2_000_000 }},
 		{"未毕业", func(r *GMGNTokenReport) { r.LaunchpadStatus = 0 }},
 		{"蜜罐", func(r *GMGNTokenReport) { r.IsHoneypot = true }},
 	}

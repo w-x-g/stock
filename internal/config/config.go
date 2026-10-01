@@ -96,7 +96,11 @@ type DexScreener struct {
 // 全部可由 cmd/screen 的命令行 flag 覆盖(沿用"零值表示用配置"的约定)。
 type Screen struct {
 	// Days 是候选的时间窗口(天)。
-	Days       int
+	Days int
+	// MinHolders / MaxHolders 是持币人数区间:**下界含等于(≥),上界不含(<)**。
+	//
+	// 两端语义不对称是刻意的——需求里下界写作"不少于 N 人",上界写作"低于 N 人"。
+	// 判定的另一半在 enrich.ScreenCriteria。
 	MinHolders int64
 	MaxHolders int64
 	// MaxSniperRate 是狙击占比上限(百分数,严格小于)。
@@ -120,12 +124,12 @@ type Screen struct {
 // 筛选条件的默认阈值,与用户需求一一对应。
 const (
 	DefaultScreenDays          = 5
-	DefaultScreenMinHolders    = 200
+	DefaultScreenMinHolders    = 300
 	DefaultScreenMaxHolders    = 2000
 	DefaultScreenMaxSniperRate = 5.0
 	DefaultScreenMaxTop10Rate  = 3.0
 	DefaultScreenTopN          = 10
-	DefaultScreenMaxMarketCap  = 50_000.0
+	DefaultScreenMaxMarketCap  = 1_000_000.0
 )
 
 // GMGN 的默认配置。

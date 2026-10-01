@@ -11,7 +11,11 @@ import (
 // 与 gmgn.go 里的解析层刻意分开:解析回答"接口说了什么",这里回答"够不够格"。
 // 分开的好处是判定逻辑是纯函数,可以在没有 API key 的情况下用 golden 数据完整测试。
 type ScreenCriteria struct {
-	// MinHolders / MaxHolders 是持币人数区间,两端都是**严格**不等式。
+	// MinHolders / MaxHolders 是持币人数区间:**下界含等于(≥ MinHolders),上界不含(< MaxHolders)**,
+	// 即 [MinHolders, MaxHolders)。
+	//
+	// 下界之所以含等于,是因为需求写作"持币人数不少于 N 人";上界写作"低于 N 人"。
+	// 改下界语义时别只改这里——PreFilter / TrenchesPreFilter / Evaluate 三处各有一个比较。
 	MinHolders int64
 	MaxHolders int64
 
@@ -104,8 +108,8 @@ func PreFilter(rep *GMGNTokenReport, c ScreenCriteria) (bool, string) {
 	}
 	// 每个判断都先问"这个字段拿到了吗":拿不到就不构成淘汰理由。
 	// 以前直接拿零值比,于是"字段没返回"会被读成"持币 0 人""市值 $0"而被淘汰。
-	if rep.hasHolderCount && (rep.HolderCount <= c.MinHolders || rep.HolderCount >= c.MaxHolders) {
-		return false, fmt.Sprintf("持币人数 %d 不在 (%d, %d) 内",
+	if rep.hasHolderCount && (rep.HolderCount < c.MinHolders || rep.HolderCount >= c.MaxHolders) {
+		return false, fmt.Sprintf("持币人数 %d 不在 [%d, %d) 内",
 			rep.HolderCount, c.MinHolders, c.MaxHolders)
 	}
 	if rep.hasMarketCap && (rep.MarketCap <= 0 || rep.MarketCap >= c.MaxMarketCap) {
@@ -149,8 +153,8 @@ func TrenchesPreFilter(t TrenchesToken, c ScreenCriteria, minCreatedUnix int64) 
 	if minCreatedUnix > 0 && t.CreatedTimestamp > 0 && t.CreatedTimestamp < minCreatedUnix {
 		return false, "超出时间窗口"
 	}
-	if t.hasHolderCount && (t.HolderCount <= c.MinHolders || t.HolderCount >= c.MaxHolders) {
-		return false, fmt.Sprintf("持币人数 %d 不在 (%d, %d) 内",
+	if t.hasHolderCount && (t.HolderCount < c.MinHolders || t.HolderCount >= c.MaxHolders) {
+		return false, fmt.Sprintf("持币人数 %d 不在 [%d, %d) 内",
 			t.HolderCount, c.MinHolders, c.MaxHolders)
 	}
 	if t.hasMarketCap && (t.MarketCap <= 0 || t.MarketCap >= c.MaxMarketCap) {
@@ -222,9 +226,9 @@ func Evaluate(rep *GMGNTokenReport, pairAddr string, c ScreenCriteria) ScreenRes
 		r.Inconclusive = true
 		r.Reasons = append(r.Reasons, "接口未返回 holder_count,无法判断持币人数")
 	default:
-		r.PassHolder = rep.HolderCount > c.MinHolders && rep.HolderCount < c.MaxHolders
+		r.PassHolder = rep.HolderCount >= c.MinHolders && rep.HolderCount < c.MaxHolders
 		if !r.PassHolder {
-			r.Reasons = append(r.Reasons, fmt.Sprintf("持币人数 %d 不在 (%d, %d) 内",
+			r.Reasons = append(r.Reasons, fmt.Sprintf("持币人数 %d 不在 [%d, %d) 内",
 				rep.HolderCount, c.MinHolders, c.MaxHolders))
 		}
 	}

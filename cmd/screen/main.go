@@ -103,7 +103,7 @@ func parseFlags() flags {
 	flag.IntVar(&f.workers, "workers", 0, "并发数,0 表示用配置值")
 	flag.StringVar(&f.source, "source", "", "限定发现渠道: four_meme | pancake_v2 | 空=不限")
 
-	flag.Int64Var(&f.minHolders, "min-holders", 0, "持币人数下界(严格大于),0 表示用配置值")
+	flag.Int64Var(&f.minHolders, "min-holders", 0, "持币人数下界(不小于,含等于),0 表示用配置值")
 	flag.Int64Var(&f.maxHolders, "max-holders", 0, "持币人数上界(严格小于),0 表示用配置值")
 	flag.Float64Var(&f.maxMcap, "max-mcap", 0, "市值上限(美元),0 表示用配置值")
 	flag.Float64Var(&f.maxSniper, "max-sniper", 0, "狙击占比上限(百分数),0 表示用配置值")
