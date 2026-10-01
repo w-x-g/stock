@@ -791,5 +791,40 @@ func (s *Store) ImportResults(ctx context.Context, recs []model.ScreenRecord, dr
 			return stats, fmt.Errorf("导入第 %d~%d 条筛选结果失败: %w", start+1, end, err)
 		}
 	}
+
+	// ---- 结果记录落库后,把对应候选一并标成 passed ----
+	//
+	// 不做这一步会留下**反向**的矛盾:passed 只存在于 results.jsonl(tsv 里刻意
+	// 不带,见 importableVerdicts),所以导入结果时若不落候选记录,这些地址在本机
+	// 就一直是"没核验过"甚至根本不存在的状态,而结果表里却有它们的明细。
+	//
+	// 后果不只是账面上对不齐:下一轮扫链会把这些候选重新核验一遍(白花 GMGN
+	// 配额),而重判若给出 rejected,这条已经通过的明细就被永久钉成自相矛盾。
+	//
+	// 复用 verifiedUpsertSQL —— 它的判断条件只读 verdict,本机已有明确结论的行
+	// 不会被覆盖(能走到这里的行,按 planResults 也已经排除了 rejected/nodata/nolp)。
+	for start := 0; start < len(plan.Apply); start += syncBatchSize {
+		end := start + syncBatchSize
+		if end > len(plan.Apply) {
+			end = len(plan.Apply)
+		}
+		chunk := plan.Apply[start:end]
+
+		ph := make([]string, 0, len(chunk))
+		args := make([]any, 0, len(chunk)*3)
+		for _, r := range chunk {
+			ts := r.CheckedAt
+			if ts.IsZero() {
+				ts = fallback
+			}
+			ph = append(ph, "(?, ?, FROM_UNIXTIME(?))")
+			args = append(args, r.ContractAddress, string(VerdictPassed), ts.Unix())
+		}
+
+		query := fmt.Sprintf(verifiedUpsertSQL, strings.Join(ph, ","))
+		if _, err := execWithRetry(ctx, s.db, query, args); err != nil {
+			return stats, fmt.Errorf("导入第 %d~%d 条结果的候选标记失败: %w", start+1, end, err)
+		}
+	}
 	return stats, nil
 }
